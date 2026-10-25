@@ -7,6 +7,11 @@ mkdir -p bin .build
 make -C bcause CC="$CC" >/dev/null
 # BCause emits a.s for -S. Compile that B-generated assembly with the same host toolchain.
 ./bcause/bcause -S main.b >/dev/null
+# BCause assumes its entry function is called from its own `_start`, where the
+# incoming stack has the SysV call alignment.  The generated `main` is linked
+# with the host C runtime below, whose startup call has the opposite alignment;
+# this empty B frame does not need the compiler's reserved word.
+sed -i '0,/^  sub \$8, %rsp$/{/^  sub \$8, %rsp$/d;}' a.s
 "$CC" -c a.s -o .build/bmain.o
 objs=()
 for src in src/*.c; do
@@ -16,6 +21,9 @@ for src in src/*.c; do
     -Dmain=c_server_main -c "$src" -o "$obj"
   objs+=("$obj")
 done
-"$CC" -nostartfiles -o bin/conduit .build/bmain.o "${objs[@]}" bcause/libb.a \
+# Let the host C runtime own process startup.  BCause's bundled libb.a supplies a
+# raw `_start` that skips glibc initialization; that is unsafe for the pthread and
+# libc code used by the support runtime and can crash on the first request.
+"$CC" -o bin/conduit .build/bmain.o "${objs[@]}" \
   -luring -lcrypt -lm -lpthread
 printf 'built B entrypoint with %s\n' "$($CC --version | head -1)"
