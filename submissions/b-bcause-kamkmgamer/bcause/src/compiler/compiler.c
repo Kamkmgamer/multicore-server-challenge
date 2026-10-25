@@ -1698,4 +1698,3 @@ static void declarations(struct compiler_args *args, FILE *in, FILE *out)
             free(args->extrns.data[i]);
     list_free(&args->extrns);
 }
-
