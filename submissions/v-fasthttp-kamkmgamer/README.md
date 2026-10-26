@@ -12,7 +12,7 @@ The hot read statements are prepared once on every PostgreSQL session, avoiding 
 
 Direct mode lets the V server accept keep-alive connections on the benchmark port without Nginx in front. This saves the proxy CPU and avoids an extra request hop. The service unit grants the capability needed to bind port 80 without running the server as root.
 
-`install.sh` builds V at commit `c36172591e766668cf8aa7cc307f05764b6a0d49` with its matching VC bootstrap snapshot (`c3063f8ca58150f6c6d98d86dc95bd3543e620f3`) and links against the system `libpq` client. Pinning both repositories keeps V's bootstrap compiler and source tree in sync. This V revision includes the Linux syscall header fix needed by its bootstrap compiler on Ubuntu 24.04. `build.sh` compiles the server with `-prod -prealloc -d new_veb`. No generated binaries or vendored dependencies are committed.
+`install.sh` builds V at commit `c36172591e766668cf8aa7cc307f05764b6a0d49` with its matching VC bootstrap snapshot (`c3063f8ca58150f6c6d98d86dc95bd3543e620f3`) and links against the system `libpq` client. Pinning both repositories keeps V's bootstrap compiler and source tree in sync. The installer also builds V's bundled Boehm GC from source so the bootstrap does not depend on a TCC library bundle. This V revision includes the Linux syscall header fix needed by its bootstrap compiler on Ubuntu 24.04. `build.sh` compiles the server with `-prod -prealloc -d new_veb`. No generated binaries or vendored dependencies are committed.
 
 ## Local load results
 

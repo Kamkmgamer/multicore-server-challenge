@@ -10,7 +10,7 @@ if [ ! -x "$V_DIR/v" ]; then
 	git -C "$V_DIR" checkout --detach "$V_COMMIT"
 	git -C "$V_DIR" clone --filter=blob:none https://github.com/vlang/vc.git vc
 	git -C "$V_DIR/vc" checkout --detach "$VC_COMMIT"
-	make -C "$V_DIR" local=1
+	make -C "$V_DIR" local=1 VFLAGS='-d use_bundled_libgc'
 fi
 test "$(git -C "$V_DIR" rev-parse HEAD)" = "$V_COMMIT"
 test "$(git -C "$V_DIR/vc" rev-parse HEAD)" = "$VC_COMMIT"
