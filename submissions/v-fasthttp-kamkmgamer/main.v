@@ -51,6 +51,11 @@ const list_select = "a.slug,a.title,a.description,to_char(a.created_at AT TIME Z
 const tags_query = "SELECT COALESCE(json_agg(name ORDER BY name),'[]'::json)::text FROM tags"
 const profile_query = "SELECT json_build_object('profile',json_build_object('username',u.username,'bio',u.bio,'image',u.image,'following',EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=$1 AND f.followee_id=u.id))) FROM users u WHERE u.username=$2"
 const comments_query = "SELECT COALESCE((SELECT json_agg(json_build_object('id',c.id,'createdAt',to_char(c.created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),'updatedAt',to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),'body',c.body,'author',json_build_object('username',u.username,'bio',u.bio,'image',u.image,'following',EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=$1 AND f.followee_id=u.id))) ORDER BY c.created_at DESC,c.id DESC) FROM (SELECT * FROM comments WHERE article_id=a.id ORDER BY created_at DESC,id DESC LIMIT 100) c JOIN users u ON u.id=c.author_id),'[]'::json) FROM articles a WHERE a.slug=$2"
+const follow_query = "WITH t AS (SELECT id FROM users WHERE username=$2), w AS (INSERT INTO follows(follower_id,followee_id) SELECT $1,id FROM t ON CONFLICT DO NOTHING) SELECT json_build_object('profile',json_build_object('username',u.username,'bio',u.bio,'image',u.image,'following',EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=$1 AND f.followee_id=u.id))) FROM users u WHERE u.username=$2"
+const unfollow_query = "WITH t AS (SELECT id FROM users WHERE username=$2), w AS (DELETE FROM follows WHERE follower_id=$1 AND followee_id=(SELECT id FROM t)) SELECT json_build_object('profile',json_build_object('username',u.username,'bio',u.bio,'image',u.image,'following',false)) FROM users u WHERE u.username=$2"
+const comment_create_query = "WITH t AS (SELECT id FROM articles WHERE slug=$1), c AS (INSERT INTO comments(article_id,author_id,body) SELECT id,$2,$3 FROM t RETURNING id,body,created_at,updated_at,author_id) SELECT json_build_object('id',c.id,'body',c.body,'createdAt',to_char(c.created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),'updatedAt',to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),'author',json_build_object('username',u.username,'bio',u.bio,'image',u.image,'following',false)) FROM c JOIN users u ON u.id=c.author_id"
+const article_delete_query = "WITH t AS (SELECT id,author_id FROM articles WHERE slug=$1), w AS (DELETE FROM articles WHERE id=(SELECT id FROM t WHERE author_id=$2)) SELECT author_id::text FROM t"
+const comment_delete_query = "WITH t AS (SELECT c.id,c.author_id FROM comments c JOIN articles a ON a.id=c.article_id WHERE c.id=$1 AND a.slug=$2), w AS (DELETE FROM comments WHERE id=(SELECT id FROM t WHERE author_id=$3)) SELECT author_id::text FROM t"
 const jwt_header_b64 = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
 const hex_digits = '0123456789abcdef'
 
@@ -332,9 +337,9 @@ fn get_profile(app &App, mut ctx Context, username string, auth Auth) veb.Result
 
 fn follow(app &App, mut ctx Context, username string, auth Auth, follow bool) veb.Result {
 	if !auth.present { return ctx.fail(401, 'authentication required') }
-	user := app.one('SELECT id FROM users WHERE username=$1', [username]) or { return ctx.fail(404, 'profile not found') }
-	if follow { app.query('INSERT INTO follows(follower_id,followee_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [auth.id,user.val(0)]) or { return ctx.fail(500, 'database error') } } else { app.query('DELETE FROM follows WHERE follower_id=$1 AND followee_id=$2', [auth.id,user.val(0)]) or { return ctx.fail(500, 'database error') } }
-	return get_profile(app, mut ctx, username, auth)
+	statement := if follow { follow_query } else { unfollow_query }
+	row := app.one(statement, [auth.id, username]) or { return ctx.fail(404, 'profile not found') }
+	return ctx.reply(200, row.val(0))
 }
 
 fn get_article(app &App, mut ctx Context, slug string, auth Auth) veb.Result {
@@ -449,9 +454,8 @@ fn update_article(app &App, mut ctx Context, slug string, auth Auth) veb.Result 
 
 fn delete_article(app &App, mut ctx Context, slug string, auth Auth) veb.Result {
 	if !auth.present { return ctx.fail(401, 'authentication required') }
-	owner := app.one('SELECT id::text,author_id::text FROM articles WHERE slug=$1', [slug]) or { return ctx.fail(404, 'article not found') }
-	if owner.val(1) != auth.id { return ctx.fail(403, 'not the author') }
-	app.query('DELETE FROM articles WHERE id=$1', [owner.val(0)]) or { return ctx.fail(500, 'database error') }
+	owner := app.one(article_delete_query, [slug, auth.id]) or { return ctx.fail(404, 'article not found') }
+	if owner.val(0) != auth.id { return ctx.fail(403, 'not the author') }
 	ctx.res.set_status(.no_content)
 	return ctx.text('')
 }
@@ -477,17 +481,17 @@ fn create_comment(app &App, mut ctx Context, slug string, auth Auth) veb.Result 
 	body := app.body(ctx, 'comment') or { return ctx.fail(422, 'invalid comment') }
 	content := string_value(body, 'body')
 	if content == '' { return ctx.fail(422, 'body is required') }
-	article := app.one('SELECT id::text FROM articles WHERE slug=$1', [slug]) or { return ctx.fail(404, 'article not found') }
-	row := app.one("WITH c AS (INSERT INTO comments(article_id,author_id,body) VALUES($1,$2,$3) RETURNING id,body,created_at,updated_at,author_id) SELECT json_build_object('id',c.id,'body',c.body,'createdAt',to_char(c.created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),'updatedAt',to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),'author',json_build_object('username',u.username,'bio',u.bio,'image',u.image,'following',false)) FROM c JOIN users u ON u.id=c.author_id", [article.val(0),auth.id,content]) or { return ctx.fail(500, 'database error') }
+	rows := app.query(comment_create_query, [slug, auth.id, content]) or { return ctx.fail(500, 'database error') }
+	if rows.len == 0 { return ctx.fail(404, 'article not found') }
+	row := rows[0]
 	return ctx.reply(201, '{"comment":${row.val(0)}}')
 }
 
 fn delete_comment(app &App, mut ctx Context, slug string, id string, auth Auth) veb.Result {
 	if !auth.present { return ctx.fail(401, 'authentication required') }
 	if !is_positive_decimal(id) { return ctx.fail(404, 'comment not found') }
-	row := app.one('SELECT c.author_id::text FROM comments c JOIN articles a ON a.id=c.article_id WHERE c.id=$1 AND a.slug=$2', [id,slug]) or { return ctx.fail(404, 'comment not found') }
+	row := app.one(comment_delete_query, [id,slug,auth.id]) or { return ctx.fail(404, 'comment not found') }
 	if row.val(0) != auth.id { return ctx.fail(403, 'not the author') }
-	app.query('DELETE FROM comments WHERE id=$1', [id]) or { return ctx.fail(500, 'database error') }
 	ctx.res.set_status(.no_content)
 	return ctx.text('')
 }

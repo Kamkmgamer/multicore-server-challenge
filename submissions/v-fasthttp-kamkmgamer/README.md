@@ -29,5 +29,7 @@ Our changes are:
 - add an allocation-light canonical JWT verification path with full validation fallback;
 - run four SO_REUSEPORT workers with 32 PostgreSQL connections by default;
 - pin the V and VC revisions and build the Boehm GC from source for a reproducible Ubuntu 24.04 install.
+- collapse follow/unfollow, article deletion, comment creation, and comment deletion into single CTE statements;
+  each mutation now checks ownership and commits the state change in the same PostgreSQL round trip.
 
 This is an optimized derivative of #2; the inherited code and the changes above are documented here so the lineage is clear.
