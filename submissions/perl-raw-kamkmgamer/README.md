@@ -11,25 +11,25 @@
 
 ## Deployment shape
 
-95 worker processes (95 of the 97 non-superuser slots) each hold one Postgres connection. Every
-worker has its own `SO_REUSEPORT` listening socket, so the kernel spreads new connections
-across workers without a thundering herd. With 100,000 users that is about 1,053 keep-alive
-sockets per worker. Idle sockets are held for 75 s.
+47 worker processes each hold one Postgres connection by default. Every worker has its own
+`SO_REUSEPORT` listening socket, so the kernel spreads new connections across workers without
+a thundering herd. With 100,000 users that is about 2,128 keep-alive sockets per worker. Idle
+sockets are held for 75 s.
 
 Within a worker, `EV` (libev's epoll backend) multiplexes its client sockets in C. A request
 runs its SQL on that worker's connection; the other sockets in that worker wait only for the
-duration of the query (a few milliseconds), and 95 workers give 95 concurrent database
-queries. This is deliberately a blocking-per-worker design: Perl has no production async
-Postgres driver, and 95 blocking slots are simpler and cheaper than a pure-Perl async facade.
+duration of the query (a few milliseconds). This is deliberately a blocking-per-worker design:
+Perl has no production async Postgres driver, and 47 blocking slots leave more scheduler
+headroom than 95 Perl processes on the eight benchmark CPUs. Set `WORKERS` explicitly to test a
+different process count.
 
 ## Optimizations and choices
 
 - **No framework and no Mojo.** The request parser, router, JSON shaping and response writer
   are all direct Perl. No middleware, no per-request object graph, no template layer.
-- **95 processes instead of 8.** The previous Perl submission used 8 blocking workers and
-  saturated at ~1,100 users. Here the database concurrency is 95, which is what the scoring
-  runs are actually limited by, while each worker's epoll loop keeps its ~1,050 keep-alive
-  sockets off the critical path.
+- **47 processes instead of 8 or 95.** The previous Perl submission used 8 blocking workers
+  and saturated at ~1,100 users. The default keeps 47 concurrent database lanes while reducing
+  scheduler and process overhead; `WORKERS` remains available for benchmark-box sweeps.
 - **Direct front.** Serving `:80` from the workers removes the reverse-proxy hop and its CPU.
   `EV` uses epoll, so tens of thousands of mostly-idle sockets cost no per-poll Perl work.
 - **One prepared statement per SQL shape, reused forever.** DBD::Pg server-side prepares keep

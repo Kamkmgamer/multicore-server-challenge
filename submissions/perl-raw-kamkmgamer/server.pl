@@ -998,7 +998,9 @@ sub _nproc {
 
 my $workers = $ENV{WORKERS};
 if (!defined $workers) {
-    $workers = 95;
+    # Keep enough blocking database lanes for the workload without scheduling 95 Perl
+    # interpreters on the eight benchmark CPUs. WORKERS remains an explicit tuning knob.
+    $workers = 47;
     my $n = _nproc();
     $workers = $n if $n < $workers && $n < 8;
 }
