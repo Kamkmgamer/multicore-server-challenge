@@ -29,3 +29,16 @@ JWT_SECRET=multicore-server-challenge HOST=0.0.0.0 PORT=80 bash start.sh
 
 The BCause compiler is MIT licensed. The Conduit support runtime and its
 native bcrypt implementation retain their original MIT attribution.
+
+## Attribution and changes
+
+This submission is derived from [PR #10](https://github.com/arjaythedev/multicore-server-challenge/pull/10) by [@tigokraft](https://github.com/tigokraft), using the submissions/c-iouring-tigokraft C runtime as its support implementation. The src/ files retained from that entry are api.c, bcrypt.c, bf_pi.h, conduit.h, json.c, pg.c, server.c, stats.c, and util.c; credit for that implementation belongs to tigokraft.
+
+Our changes in this folder are:
+
+- add main.b, a B process entrypoint that calls the retained C server through B's C ABI;
+- vendor and build the BCause compiler and B standard library;
+- adapt the install, build, and start scripts for the hybrid B/C entry;
+- keep the challenge contract and runtime tuning behavior while linking the existing C server.
+
+This should be understood as a B entrypoint and packaging variant of #10, rather than an independent rewrite of the server.
