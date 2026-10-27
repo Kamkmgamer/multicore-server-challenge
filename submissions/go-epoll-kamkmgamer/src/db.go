@@ -388,6 +388,10 @@ func sameSharedRequest(a, b *reactorJob) bool {
 			a.db.nparams == 3 && b.db.nparams == 3 &&
 			bytes.Equal(a.db.params[1], b.db.params[1]) &&
 			bytes.Equal(a.db.params[2], b.db.params[2])
+	case stProfile, stArticleBySlug, stComments:
+		return a.db.viewer == 0 && b.db.viewer == 0 &&
+			a.db.nparams == b.db.nparams &&
+			bytes.Equal(a.db.params[1], b.db.params[1])
 	default:
 		return false
 	}

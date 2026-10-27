@@ -47,5 +47,7 @@ Our changes are:
 - add about 100 lines in db.go so concurrent /api/tags requests in one read batch share one PostgreSQL execution while keeping independent response buffers.
 - generalize that read coalescer to identical anonymous article-list pages, grouping requests by limit and offset and
   copying the fresh response into each request's own arena without retaining data between requests.
+- extend the same fresh-read coalescing to anonymous profiles, articles, and comment lists with identical path
+  arguments; authenticated requests remain isolated because their following/favorited fields differ.
 
 This is a tuned derivative of #28, not a wholly new Go server.

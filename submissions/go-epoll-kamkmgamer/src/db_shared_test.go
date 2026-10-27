@@ -27,6 +27,18 @@ func TestSameSharedRequest(t *testing.T) {
 		t.Fatal("identical anonymous list reads should share")
 	}
 
+	for _, stmt := range []stmtID{stProfile, stArticleBySlug, stComments} {
+		a := sharedJob(stmt, 0, 0, 0)
+		a.db.nparams = 2
+		a.db.params[1] = []byte("same-slug")
+		b := sharedJob(stmt, 0, 0, 0)
+		b.db.nparams = 2
+		b.db.params[1] = []byte("same-slug")
+		if !sameSharedRequest(a, b) {
+			t.Fatalf("anonymous statement %d reads should share", stmt)
+		}
+	}
+
 	cases := []struct {
 		name string
 		b    *reactorJob
