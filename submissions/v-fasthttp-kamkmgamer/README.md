@@ -33,5 +33,7 @@ Our changes are:
   each mutation now checks ownership and commits the state change in the same PostgreSQL round trip.
 - collapse favorite/unfavorite lookup plus mutation into one CTE round trip before the final article read, removing
   one database lease from the hottest write path.
+- prepare all of those CTE mutation statements on every PostgreSQL session, so the fast paths do not fall back to
+  repeated parse and plan work.
 
 This is an optimized derivative of #2; the inherited code and the changes above are documented here so the lineage is clear.

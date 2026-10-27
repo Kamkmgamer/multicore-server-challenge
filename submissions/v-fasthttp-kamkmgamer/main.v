@@ -71,6 +71,13 @@ fn prepared_specs() []PreparedSpec {
 	specs << PreparedSpec{query: article_query(), params: 2}
 	specs << PreparedSpec{query: profile_query, params: 2}
 	specs << PreparedSpec{query: comments_query, params: 2}
+	specs << PreparedSpec{query: follow_query, params: 2}
+	specs << PreparedSpec{query: unfollow_query, params: 2}
+	specs << PreparedSpec{query: comment_create_query, params: 3}
+	specs << PreparedSpec{query: article_delete_query, params: 2}
+	specs << PreparedSpec{query: comment_delete_query, params: 3}
+	specs << PreparedSpec{query: favorite_query, params: 2}
+	specs << PreparedSpec{query: unfavorite_query, params: 2}
 	specs << PreparedSpec{query: 'SELECT id::text,json_build_object(\'username\',username,\'email\',email,\'bio\',bio,\'image\',image)::text FROM users WHERE email=$1', params: 1}
 	specs << PreparedSpec{query: 'SELECT json_build_object(\'email\',email,\'username\',username,\'bio\',bio,\'image\',image) FROM users WHERE id=$1', params: 1}
 	for filter in ['', 'tag', 'author', 'favorited'] {
