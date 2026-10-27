@@ -36,9 +36,11 @@ This submission is derived from [PR #10](https://github.com/arjaythedev/multicor
 
 Our changes in this folder are:
 
-- add main.b, a B process entrypoint that calls the retained C server through B's C ABI;
+- add a B process entrypoint and a B-written request router. Every request's decoded API segments pass through B's
+  b_route classifier before C authenticates or executes the endpoint;
 - vendor and build the BCause compiler and B standard library;
 - adapt the install, build, and start scripts for the hybrid B/C entry;
 - keep the challenge contract and runtime tuning behavior while linking the existing C server.
 
-This should be understood as a B entrypoint and packaging variant of #10, rather than an independent rewrite of the server.
+The C runtime remains derived from #10, but B now owns process entry and the static route classifier on every request;
+this is a distinct B/C hot-path variant rather than an uncredited copy.

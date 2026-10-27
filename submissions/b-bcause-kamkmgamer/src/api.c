@@ -860,34 +860,10 @@ static const int AUTH[] = {
     [R_TAGS] = A_NONE, [R_REGISTER] = A_NONE, [R_LOGIN] = A_NONE,
 };
 
+extern int b_route(int method, const void *segments, int nseg);
+
 static int route(req_t *r) {
-    const str_t *s = r->seg;
-    int n = r->nseg, m = r->method;
-    if (n <= 0) return R_NONE;
-    if (str_eq(s[0], "articles")) {
-        if (n == 1) return m == M_GET ? R_LIST : m == M_POST ? R_CREATE_ARTICLE : R_NONE;
-        if (s[1].n == 0) return R_NONE;
-        if (n == 2) {
-            if (m == M_GET) return str_eq(s[1], "feed") ? R_FEED : R_GET_ARTICLE;
-            return m == M_PUT ? R_PUT_ARTICLE : m == M_DELETE ? R_DEL_ARTICLE : R_NONE;
-        }
-        if (n == 3 && str_eq(s[2], "favorite")) return m == M_POST ? R_FAV : m == M_DELETE ? R_UNFAV : R_NONE;
-        if (n == 3 && str_eq(s[2], "comments")) return m == M_GET ? R_COMMENTS : m == M_POST ? R_CREATE_COMMENT : R_NONE;
-        if (n == 4 && str_eq(s[2], "comments") && s[3].n && m == M_DELETE) return R_DEL_COMMENT;
-        return R_NONE;
-    }
-    if (str_eq(s[0], "tags")) return n == 1 && m == M_GET ? R_TAGS : R_NONE;
-    if (str_eq(s[0], "user")) return n == 1 ? (m == M_GET ? R_GET_USER : m == M_PUT ? R_PUT_USER : R_NONE) : R_NONE;
-    if (str_eq(s[0], "profiles") && n >= 2 && s[1].n) {
-        if (n == 2) return m == M_GET ? R_PROFILE : R_NONE;
-        if (n == 3 && str_eq(s[2], "follow")) return m == M_POST ? R_FOLLOW : m == M_DELETE ? R_UNFOLLOW : R_NONE;
-        return R_NONE;
-    }
-    if (str_eq(s[0], "users")) {
-        if (n == 1) return m == M_POST ? R_REGISTER : R_NONE;
-        if (n == 2 && str_eq(s[1], "login")) return m == M_POST ? R_LOGIN : R_NONE;
-    }
-    return R_NONE;
+    return b_route(r->method, r->seg, r->nseg);
 }
 
 // 0: no header, 1: valid token, -1: header present but invalid.
