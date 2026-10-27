@@ -189,10 +189,9 @@ impl Db {
 
     /// A connection for a read-only statement.
     pub fn read(&self, family: ReadKind) -> Lease {
-        // Comments have no combined query. Tag fanout routing is optional.
-        if matches!(family, ReadKind::Comments)
-            || matches!(family, ReadKind::Tags) && !self.route_tags
-        {
+        // Tag fanout routing is optional; comments participate in the grouped
+        // read actor now that their rows carry a request ordinal.
+        if matches!(family, ReadKind::Tags) && !self.route_tags {
             return least_loaded(&self.reads);
         }
         match self.route_slack {

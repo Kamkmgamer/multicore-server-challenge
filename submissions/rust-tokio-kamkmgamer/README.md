@@ -43,6 +43,9 @@ connections, and one bcrypt worker. `APP_THREADS`, `DB_CONNS`, `DB_WRITE_CONNS`,
 - Prepared binary PostgreSQL statements use separate read/write pools, least-load routing, compatible read
   grouping, array-parameterized LATERAL batches, and durable grouped commits. No query result is retained between
   requests.
+- Compatible `/api/comments` reads are packed into one prepared `unnest` execution with request ordinals, then
+  demultiplexed back to each response. The query preserves per-article comment order and still returns a 404 for an
+  unknown article.
 - Responses are serialized directly into reusable buffers. PostgreSQL timestamps and text arrays are read from
   binary values, and JSON escaping uses an x86-64 SIMD fast path.
 - Canonical load-generator JWTs use a strict allocation-free claims parser after signature verification. Reordered,

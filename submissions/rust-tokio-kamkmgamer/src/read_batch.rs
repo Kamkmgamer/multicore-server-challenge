@@ -27,6 +27,7 @@ pub async fn prepare(
         (&st.profile, sql::PROFILE, false),
         (&st.user_by_id, sql::USER_BY_ID, false),
         (&st.user_by_email, sql::USER_BY_EMAIL, false),
+        (&st.comments_list, sql::COMMENTS_LIST, true),
     ] {
         let mut types = Vec::new();
         let mut args = Vec::new();
@@ -64,7 +65,11 @@ pub async fn prepare(
         );
         // Explicitly preserve each original list's order after result demultiplexing.
         if ordered {
-            query.push_str(" ORDER BY r.ord, q.id DESC");
+            if text == sql::COMMENTS_LIST {
+                query.push_str(" ORDER BY r.ord, q.created_at DESC, q.id DESC");
+            } else {
+                query.push_str(" ORDER BY r.ord, q.id DESC");
+            }
         }
         // Feed pages depend on the viewer, so equal pagination cannot establish
         // overlap. Keep their existing batched query.
