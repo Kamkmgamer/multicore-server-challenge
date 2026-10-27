@@ -56,6 +56,8 @@ const unfollow_query = "WITH t AS (SELECT id FROM users WHERE username=$2), w AS
 const comment_create_query = "WITH t AS (SELECT id FROM articles WHERE slug=$1), c AS (INSERT INTO comments(article_id,author_id,body) SELECT id,$2,$3 FROM t RETURNING id,body,created_at,updated_at,author_id) SELECT json_build_object('id',c.id,'body',c.body,'createdAt',to_char(c.created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),'updatedAt',to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),'author',json_build_object('username',u.username,'bio',u.bio,'image',u.image,'following',false)) FROM c JOIN users u ON u.id=c.author_id"
 const article_delete_query = "WITH t AS (SELECT id,author_id FROM articles WHERE slug=$1), w AS (DELETE FROM articles WHERE id=(SELECT id FROM t WHERE author_id=$2)) SELECT author_id::text FROM t"
 const comment_delete_query = "WITH t AS (SELECT c.id,c.author_id FROM comments c JOIN articles a ON a.id=c.article_id WHERE c.id=$1 AND a.slug=$2), w AS (DELETE FROM comments WHERE id=(SELECT id FROM t WHERE author_id=$3)) SELECT author_id::text FROM t"
+const favorite_query = "WITH t AS (SELECT id FROM articles WHERE slug=$2), w AS (INSERT INTO favorites(user_id,article_id) SELECT $1,id FROM t ON CONFLICT DO NOTHING) SELECT id::text FROM t"
+const unfavorite_query = "WITH t AS (SELECT id FROM articles WHERE slug=$2), w AS (DELETE FROM favorites WHERE user_id=$1 AND article_id=(SELECT id FROM t)) SELECT id::text FROM t"
 const jwt_header_b64 = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
 const hex_digits = '0123456789abcdef'
 
@@ -462,9 +464,8 @@ fn delete_article(app &App, mut ctx Context, slug string, auth Auth) veb.Result 
 
 fn favorite(app &App, mut ctx Context, slug string, auth Auth, favorite bool) veb.Result {
 	if !auth.present { return ctx.fail(401, 'authentication required') }
-	article := app.one('SELECT id::text FROM articles WHERE slug=$1', [slug]) or { return ctx.fail(404, 'article not found') }
-	if favorite { app.query('INSERT INTO favorites(user_id,article_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [auth.id,article.val(0)]) or { return ctx.fail(500, 'database error') } }
-	else { app.query('DELETE FROM favorites WHERE user_id=$1 AND article_id=$2', [auth.id,article.val(0)]) or { return ctx.fail(500, 'database error') } }
+	statement := if favorite { favorite_query } else { unfavorite_query }
+	app.one(statement, [auth.id, slug]) or { return ctx.fail(404, 'article not found') }
 	updated := app.article_json(auth.id, slug) or { return ctx.fail(500, 'database error') }
 	return ctx.reply(200, '{"article":${updated}}')
 }
