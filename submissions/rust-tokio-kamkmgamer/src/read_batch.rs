@@ -66,7 +66,7 @@ pub async fn prepare(
         // Explicitly preserve each original list's order after result demultiplexing.
         if ordered {
             if text == sql::COMMENTS_LIST {
-                query.push_str(" ORDER BY r.ord, q.created_at DESC, q.id DESC");
+                query.push_str(" ORDER BY r.ord, q.created_at DESC, q.comment_id DESC");
             } else {
                 query.push_str(" ORDER BY r.ord, q.id DESC");
             }

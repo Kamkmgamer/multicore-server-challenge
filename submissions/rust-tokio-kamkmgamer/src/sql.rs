@@ -153,7 +153,7 @@ pub const ARTICLE_DELETE: &str = "WITH t AS (SELECT id, author_id FROM articles 
 SELECT author_id FROM t";
 
 /// Article id, then up to 100 comments (all comment columns NULL when there are none). No row = no article.
-pub const COMMENTS_LIST: &str = "SELECT a.id, c.id, c.body, c.created_at, c.updated_at, u.username, u.bio, u.image,
+pub const COMMENTS_LIST: &str = "SELECT a.id AS article_id, c.id AS comment_id, c.body, c.created_at, c.updated_at, u.username, u.bio, u.image,
  EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.followee_id = c.author_id)
 FROM articles a
 LEFT JOIN LATERAL (SELECT c.id, c.body, c.created_at, c.updated_at, c.author_id FROM comments c WHERE c.article_id = a.id
@@ -163,7 +163,7 @@ WHERE a.slug = $2
 ORDER BY c.created_at DESC, c.id DESC";
 
 /// Materialize the viewer's followee set once for all comments in this execution.
-pub const COMMENTS_LIST_SET: &str = "SELECT a.id, c.id, c.body, c.created_at, c.updated_at, u.username, u.bio, u.image,
+pub const COMMENTS_LIST_SET: &str = "SELECT a.id AS article_id, c.id AS comment_id, c.body, c.created_at, c.updated_at, u.username, u.bio, u.image,
  COALESCE(c.author_id IN (SELECT fo.followee_id FROM follows fo WHERE fo.follower_id = $1), false)
 FROM articles a
 LEFT JOIN LATERAL (SELECT c.id, c.body, c.created_at, c.updated_at, c.author_id FROM comments c WHERE c.article_id = a.id
