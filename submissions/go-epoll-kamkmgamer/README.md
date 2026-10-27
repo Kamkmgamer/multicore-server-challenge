@@ -35,3 +35,15 @@ DATABASE_URL=postgres://conduit:conduit@127.0.0.1:5432/conduit \
 
 The implementation accepts the tuning variables documented in `src/main.go`, `src/db.go`, and
 `src/reactor_linux.go`; the defaults target the benchmark box and can be overridden for a local run.
+
+## Attribution and changes
+
+This submission is derived from [PR #28](https://github.com/arjaythedev/multicore-server-challenge/pull/28) by [@o7LiveType](https://github.com/o7LiveType), using submissions/go-epoll-o7livetype as its base. The build, install, and start scripts and most of the source are retained from that entry; credit for the underlying implementation belongs to o7LiveType.
+
+Our changes are:
+
+- raise MAX_INFLIGHT to 8192 and MAX_QUEUED to 32768;
+- change the default EPOLL_LOOPS setting from cores/4 to cores/2;
+- add about 100 lines in db.go so concurrent /api/tags requests in one read batch share one PostgreSQL execution while keeping independent response buffers.
+
+This is a tuned derivative of #28, not a wholly new Go server.
