@@ -17,3 +17,17 @@ Direct mode lets the V server accept keep-alive connections on the benchmark por
 ## Local load results
 
 On the development host, the full 500,000-article seed passed a five-minute hold at 4,000 VUs with `-think-scale 0.2`: 5,133 req/s, p95 126.1 ms, p99 487.7 ms, and no errors. This ran after a 60-second ramp; the app, PostgreSQL, and load generator shared a 24-thread host. The accelerated think scale and shared host make this a local comparison result, not the official score: the challenge box has 8 vCPUs and its official five-minute hold uses the default workload settings.
+
+## Attribution and changes
+
+This submission is derived from [PR #2](https://github.com/arjaythedev/multicore-server-challenge/pull/2) by [@ulises-jeremias](https://github.com/ulises-jeremias), using submissions/v-fasthttp-ulises-jeremias as its base. Credit for the original V/veb implementation belongs to ulises-jeremias.
+
+Our changes are:
+
+- prepare the hot PostgreSQL statements once per session;
+- return scalar article columns and assemble response JSON in V;
+- add an allocation-light canonical JWT verification path with full validation fallback;
+- run four SO_REUSEPORT workers with 32 PostgreSQL connections by default;
+- pin the V and VC revisions and build the Boehm GC from source for a reproducible Ubuntu 24.04 install.
+
+This is an optimized derivative of #2; the inherited code and the changes above are documented here so the lineage is clear.
