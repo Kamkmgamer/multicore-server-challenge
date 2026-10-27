@@ -466,9 +466,12 @@ static int conn_parse(conn_t *c) {
     r->w = c->w;
     r->keepalive = keepalive;
     if (UNLIKELY(STATS_ON)) r->t0 = stats_now();
-    char *raw = arena_alloc(&r->arena, total + 1);
+    // The B route classifier reads one machine word for static segments. Keep
+    // a zeroed word after the request so a short final segment such as `tags`
+    // can be compared without reading past the arena allocation.
+    char *raw = arena_alloc(&r->arena, total + 8);
     memcpy(raw, in, total);
-    raw[total] = 0;
+    memset(raw + total, 0, 8);
     memmove(in, in + total, len - total);
     c->in.len -= total;
     if (c->in.len == 0) buf_free(&c->in);
