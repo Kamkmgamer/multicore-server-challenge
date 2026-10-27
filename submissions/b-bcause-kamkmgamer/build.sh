@@ -8,10 +8,17 @@ make -C bcause CC="$CC" >/dev/null
 # BCause emits a.s for -S. Compile that B-generated assembly with the same host toolchain.
 ./bcause/bcause -S main.b >/dev/null
 # BCause assumes its entry function is called from its own `_start`, where the
-# incoming stack has the SysV call alignment.  The generated `main` is linked
+# incoming stack has the SysV call alignment. The generated `main` is linked
 # with the host C runtime below, whose startup call has the opposite alignment;
-# this empty B frame does not need the compiler's reserved word.
-sed -i '0,/^  sub \$8, %rsp$/{/^  sub \$8, %rsp$/d;}' a.s
+# this empty B frame does not need the compiler's reserved word. The router now
+# has its own B frames, so remove the adjustment specifically inside `main`.
+awk '
+  /^main:$/ { in_main = 1 }
+  in_main && /^  sub \$8, %rsp$/ && !removed { removed = 1; next }
+  in_main && /^\.L\.return\.main:$/ { in_main = 0 }
+  { print }
+' a.s > a.s.fixed
+mv a.s.fixed a.s
 "$CC" -c a.s -o .build/bmain.o
 objs=()
 for src in src/*.c; do

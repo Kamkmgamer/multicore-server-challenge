@@ -45,6 +45,8 @@ Our changes in this folder are:
 - keep the challenge contract and runtime tuning behavior while linking the existing C server.
 - reserve a zeroed machine-word tail in each parsed request so B's word-at-a-time static-token checks remain bounded
   even when the final path segment is short.
+- keep the B-to-host-C startup alignment fix scoped to the generated main frame, so helper functions retain their own
+  stack frames.
 
 The C runtime remains derived from #10, but B now owns process entry and the static route classifier on every request;
 this is a distinct B/C hot-path variant rather than an uncredited copy.
