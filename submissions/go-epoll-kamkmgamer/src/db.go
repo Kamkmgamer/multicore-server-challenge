@@ -17,8 +17,9 @@ package main
 //  4. receive   When the pipeline is full, or nothing else is queued, read the
 //               oldest batch's results. Each request is finished from its rows
 //               (api.go); reads are answered at once, writes after the commit.
-//               A batch made entirely of /api/tags reads sends one fresh tag
-//               query and fans its small payload out to the batch.
+//               A batch made entirely of /api/tags reads, or identical
+//               anonymous article-list reads, sends one fresh query and fans
+//               the response out to the batch.
 //
 // While PostgreSQL runs one batch the worker turns the previous one into JSON.
 //
@@ -36,6 +37,7 @@ package main
 // new password's request comes back to the write queue once hashed.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -152,12 +154,12 @@ type worker struct {
 	pipe  *pgconn.Pipeline
 	sd    [numStmts]*pgconn.StatementDescription // prepared statements, by id
 
-	jobs      []*reactorJob // the batch being collected (reused)
-	pending   []*reactorJob // the part of it that needs a statement (reused)
-	tagJobs   []*reactorJob // temporary split for the tag coalescing fast path
-	otherJobs []*reactorJob
-	single    [1]*reactorJob
-	retry     []*reactorJob // requests to send again alone after their batch failed
+	jobs       []*reactorJob // the batch being collected (reused)
+	pending    []*reactorJob // the part of it that needs a statement (reused)
+	sharedJobs []*reactorJob // temporary split for a coalesced read group
+	otherJobs  []*reactorJob
+	single     [1]*reactorJob
+	retry      []*reactorJob // requests to send again alone after their batch failed
 
 	ring    []flight // batches in flight, oldest at head
 	head, n int
@@ -174,9 +176,9 @@ type worker struct {
 // flight is one batch sent on the pipeline and not yet read back. single marks
 // a request sent again alone, whose failure is that request's own answer.
 type flight struct {
-	jobs       []*reactorJob
-	single     bool
-	sharedTags bool // all jobs are GET /api/tags and use one fresh query
+	jobs   []*reactorJob
+	single bool
+	shared bool // all jobs are an identical viewer-independent read
 }
 
 func newDBDispatcher(s *reactorServer, cfg dbConfig, pgcfg *pgconn.Config, secret []byte) *dbDispatcher {
@@ -195,7 +197,7 @@ func newDBDispatcher(s *reactorServer, cfg dbConfig, pgcfg *pgconn.Config, secre
 		}
 		w.jobs = make([]*reactorJob, 0, limit)
 		w.pending = make([]*reactorJob, 0, limit)
-		w.tagJobs = make([]*reactorJob, 0, limit)
+		w.sharedJobs = make([]*reactorJob, 0, limit)
 		w.otherJobs = make([]*reactorJob, 0, limit)
 		w.ring = make([]flight, cfg.pipelineDepth)
 		for i := range w.ring {
@@ -345,12 +347,12 @@ func (w *worker) loop(q chan *reactorJob) {
 				break
 			}
 			if pending := w.plan(jobs); len(pending) > 0 {
-				// Tags are viewer-independent. When a mixed read batch contains
-				// several tag requests, peel them into their own flight so the
-				// database executes the immutable tag read once for this batch.
+				// Coalescible reads are viewer-independent. When a mixed read
+				// batch contains several identical requests, peel them into their
+				// own flight so PostgreSQL executes the query once for this batch.
 				// Keep one ring slot free for the remainder of the mixed batch.
-				if w.n+1 < len(w.ring) && w.splitTagBatch(pending) {
-					w.send(w.tagJobs, false)
+				if w.n+1 < len(w.ring) && w.splitSharedBatch(pending) {
+					w.send(w.sharedJobs, false)
 					w.send(w.otherJobs, false)
 				} else {
 					w.send(pending, false)
@@ -370,23 +372,52 @@ func (w *worker) loop(q chan *reactorJob) {
 	}
 }
 
-// splitTagBatch partitions a planned read batch when doing so lets multiple
-// GET /api/tags requests use one PostgreSQL execution. It leaves the original
-// order alone when there is only one tag request or no mixed remainder.
-func (w *worker) splitTagBatch(jobs []*reactorJob) bool {
-	w.tagJobs = w.tagJobs[:0]
-	w.otherJobs = w.otherJobs[:0]
-	for _, j := range jobs {
-		if j.db.stmt == stTags {
-			w.tagJobs = append(w.tagJobs, j)
-		} else {
-			w.otherJobs = append(w.otherJobs, j)
-		}
-	}
-	if len(w.tagJobs) < 2 || len(w.otherJobs) == 0 {
+// sameSharedRequest reports whether two planned reads can use one PostgreSQL
+// result. Tags are independent of the request. Anonymous article-list reads
+// are safe when their limit and offset match because the response contains no
+// viewer-specific fields.
+func sameSharedRequest(a, b *reactorJob) bool {
+	if a.db.stmt != b.db.stmt {
 		return false
 	}
-	return true
+	switch a.db.stmt {
+	case stTags:
+		return true
+	case stListAll:
+		return a.db.viewer == 0 && b.db.viewer == 0 &&
+			a.db.nparams == 3 && b.db.nparams == 3 &&
+			bytes.Equal(a.db.params[1], b.db.params[1]) &&
+			bytes.Equal(a.db.params[2], b.db.params[2])
+	default:
+		return false
+	}
+}
+
+// splitSharedBatch partitions a planned read batch when doing so lets
+// multiple identical viewer-independent requests use one PostgreSQL
+// execution. It leaves the original order alone when there is no mixed
+// remainder or no group of at least two requests.
+func (w *worker) splitSharedBatch(jobs []*reactorJob) bool {
+	w.sharedJobs = w.sharedJobs[:0]
+	w.otherJobs = w.otherJobs[:0]
+	for _, candidate := range jobs {
+		if !sameSharedRequest(candidate, candidate) {
+			continue
+		}
+		for _, j := range jobs {
+			if sameSharedRequest(candidate, j) {
+				w.sharedJobs = append(w.sharedJobs, j)
+			} else {
+				w.otherJobs = append(w.otherJobs, j)
+			}
+		}
+		if len(w.sharedJobs) >= 2 && len(w.otherJobs) > 0 {
+			return true
+		}
+		w.sharedJobs = w.sharedJobs[:0]
+		w.otherJobs = w.otherJobs[:0]
+	}
+	return false
 }
 
 // next returns queued requests: blocking for the first one only when asked,
@@ -521,17 +552,17 @@ func (w *worker) send(jobs []*reactorJob, single bool) {
 	f := &w.ring[(w.head+w.n)%len(w.ring)]
 	f.jobs = append(f.jobs[:0], jobs...)
 	f.single = single
-	f.sharedTags = !single && len(jobs) > 1
-	if f.sharedTags {
-		for _, j := range jobs {
-			if j.db.stmt != stTags {
-				f.sharedTags = false
+	f.shared = !single && len(jobs) > 1
+	if f.shared {
+		for _, j := range jobs[1:] {
+			if !sameSharedRequest(jobs[0], j) {
+				f.shared = false
 				break
 			}
 		}
 	}
 	count := len(jobs)
-	if f.sharedTags {
+	if f.shared {
 		count = 1
 	}
 	for _, j := range jobs[:count] {
@@ -607,7 +638,7 @@ func (w *worker) receive() {
 // whether the batch's Sync was already reached.
 func (w *worker) readResults(f *flight) (done int, failed error, synced bool) {
 	jobs := f.jobs
-	if f.sharedTags {
+	if f.shared {
 		res, err := w.pipe.GetResults()
 		if err != nil {
 			return 0, err, false

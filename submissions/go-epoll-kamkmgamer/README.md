@@ -45,5 +45,7 @@ Our changes are:
 - raise MAX_INFLIGHT to 8192 and MAX_QUEUED to 32768;
 - change the default EPOLL_LOOPS setting from cores/4 to cores/2;
 - add about 100 lines in db.go so concurrent /api/tags requests in one read batch share one PostgreSQL execution while keeping independent response buffers.
+- generalize that read coalescer to identical anonymous article-list pages, grouping requests by limit and offset and
+  copying the fresh response into each request's own arena without retaining data between requests.
 
 This is a tuned derivative of #28, not a wholly new Go server.
