@@ -640,21 +640,16 @@ async fn delete_article(auth: Auth<'_>, slug: &str) -> Result<Resp> {
 async fn favorite(auth: Auth<'_>, slug: &str, on: bool) -> Result<Resp> {
     let (viewer, _) = auth.user()?;
     let c = app().db.write();
-    let st = if on { &c.st.favorite } else { &c.st.unfavorite };
+    let st = if on {
+        &c.st.favorite_article
+    } else {
+        &c.st.unfavorite_article
+    };
     let row = c
         .client
         .query_opt(st, &[&viewer, &slug])
         .await?
         .ok_or(ApiError::NotFound)?;
-    let id: i64 = row.get(0);
-    drop(c);
-    let c = app().db.read(crate::db::ReadKind::ArticleId);
-    let row = c
-        .client
-        .query_opt(&c.st.article_by_id, &[&viewer, &id])
-        .await?
-        .ok_or(ApiError::NotFound)?;
-    drop(c);
     ok(article_envelope(&row))
 }
 

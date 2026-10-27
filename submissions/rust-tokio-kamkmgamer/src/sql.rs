@@ -85,15 +85,38 @@ pub const ARTICLE_BY_ID: &str = concat!(
     " FROM articles a JOIN users u ON u.id = a.author_id WHERE a.id = $2"
 );
 
-/// RETURNING through the article lookup also distinguishes an absent slug.
-/// Read the article in a separate statement after this implicit transaction commits.
-pub const FAVORITE: &str = "WITH t AS (SELECT id FROM articles WHERE slug = $2),
- w AS (INSERT INTO favorites (user_id, article_id) SELECT $1, id FROM t ON CONFLICT DO NOTHING)
-SELECT id FROM t";
+/// Mutate a favorite and return the complete article in the same statement.
+/// The data-modifying CTE uses the pre-statement snapshot, so the count is
+/// adjusted by whether the insert/delete actually returned a row.
+macro_rules! favorite_article_stmt {
+    ($write:literal, $adjust:literal, $favorited:literal) => {
+        concat!(
+            "WITH t AS (SELECT id FROM articles WHERE slug = $2), w AS (",
+            $write,
+            ") SELECT a.id, a.slug, a.title, a.description, a.body, a.created_at, a.updated_at,\n",
+            " ARRAY(SELECT (SELECT tg.name FROM tags tg WHERE tg.id = at.tag_id) FROM article_tags at WHERE at.article_id = a.id ORDER BY 1),\n",
+            " (SELECT count(*) FROM favorites f WHERE f.article_id = a.id)",
+            $adjust,
+            ", ",
+            $favorited,
+            ", u.username, u.bio, u.image,\n",
+            " EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.followee_id = a.author_id)\n",
+            " FROM articles a JOIN users u ON u.id = a.author_id WHERE a.slug = $2"
+        )
+    };
+}
 
-pub const UNFAVORITE: &str = "WITH t AS (SELECT id FROM articles WHERE slug = $2),
- w AS (DELETE FROM favorites WHERE user_id = $1 AND article_id = (SELECT id FROM t))
-SELECT id FROM t";
+pub const FAVORITE_ARTICLE: &str = favorite_article_stmt!(
+    "INSERT INTO favorites (user_id, article_id) SELECT $1, id FROM t ON CONFLICT DO NOTHING RETURNING article_id",
+    " + CASE WHEN EXISTS (SELECT 1 FROM w) THEN 1 ELSE 0 END",
+    "true"
+);
+
+pub const UNFAVORITE_ARTICLE: &str = favorite_article_stmt!(
+    "DELETE FROM favorites WHERE user_id = $1 AND article_id = (SELECT id FROM t) RETURNING article_id",
+    " - CASE WHEN EXISTS (SELECT 1 FROM w) THEN 1 ELSE 0 END",
+    "false"
+);
 
 /// Create an article with its tags in one statement (one implicit transaction). `ON CONFLICT DO UPDATE` returns
 /// the id of a concurrently created tag absent from our snapshot. Existing tags are read

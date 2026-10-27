@@ -35,8 +35,8 @@ pub struct Stmts {
     pub list_feed: Statement,
     pub article_by_slug: Statement,
     pub article_by_id: Statement,
-    pub favorite: Statement,
-    pub unfavorite: Statement,
+    pub favorite_article: Statement,
+    pub unfavorite_article: Statement,
     pub article_create: Statement,
     pub article_update: Statement,
     pub article_delete: Statement,
@@ -340,8 +340,8 @@ async fn connect_one(url: &str, _write: bool) -> Result<Conn, tokio_postgres::Er
         .await?,
         article_by_slug: p(sql::ARTICLE_BY_SLUG, &[Type::INT8, Type::TEXT]).await?,
         article_by_id: p(sql::ARTICLE_BY_ID, &[Type::INT8, Type::INT8]).await?,
-        favorite: p(sql::FAVORITE, &[Type::INT8, Type::TEXT]).await?,
-        unfavorite: p(sql::UNFAVORITE, &[Type::INT8, Type::TEXT]).await?,
+        favorite_article: p(sql::FAVORITE_ARTICLE, &[Type::INT8, Type::TEXT]).await?,
+        unfavorite_article: p(sql::UNFAVORITE_ARTICLE, &[Type::INT8, Type::TEXT]).await?,
         article_create: p(
             sql::ARTICLE_CREATE,
             &[
