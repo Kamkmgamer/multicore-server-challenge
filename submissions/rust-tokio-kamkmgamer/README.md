@@ -74,3 +74,16 @@ JWT_SECRET=multicore-server-challenge HOST=0.0.0.0 PORT=80 bash start.sh
 
 The local accelerated load probe passed at 3,000 users (p95 182 ms, p99 327 ms, zero errors), but the host was
 load-generator limited and shared with unrelated workloads; it is not an official leaderboard score.
+
+## Attribution and changes
+
+This submission is derived from [PR #7](https://github.com/arjaythedev/multicore-server-challenge/pull/7) by [@Scooter1337](https://github.com/Scooter1337), using submissions/rust-tokio-Scooter1337 as its base. Most of the existing source, native code, vendored dependencies, lockfile, and launcher are retained from that entry; credit for the original implementation belongs to Scooter1337.
+
+Our changes are:
+
+- add the direct Tokio HTTP/PostgreSQL implementation and its grouped read and durable grouped-write paths;
+- add SIMD JSON serialization, mimalloc, and native batched bcrypt;
+- add the strict allocation-free canonical load-generator JWT fast path, complete JSON-validation fallback, and checked single-pass integer parsing;
+- pin the toolchain and dependencies and provide the native CPU/LTO release build and validation scripts.
+
+This is an optimized derivative of #7, not an unrelated Rust implementation.
