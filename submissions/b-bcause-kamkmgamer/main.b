@@ -96,6 +96,14 @@ b_route(method, segs, nseg) {
     return(0);
 }
 
+/* Authorization modes match api.c's A_NONE/A_OPTIONAL/A_REQUIRED values. */
+b_auth_mode(route) {
+    if (route == 5 | route == 8 | route == 11 | route == 16) return(1);
+    if (route == 3 | route == 4 | route == 6 | route == 7 | route == 9 | route == 10 |
+        route == 12 | route == 13 | route == 14 | route == 15 | route == 17 | route == 18) return(2);
+    return(0);
+}
+
 main() {
     c_server_main(0, 0);
 }

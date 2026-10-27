@@ -38,6 +38,8 @@ Our changes in this folder are:
 
 - add a B process entrypoint and a B-written request router. Every request's decoded API segments pass through B's
   b_route classifier before C authenticates or executes the endpoint;
+- keep the endpoint authorization matrix in B as well, so route selection and optional/required token policy share one
+  language-owned dispatch layer;
 - vendor and build the BCause compiler and B standard library;
 - adapt the install, build, and start scripts for the hybrid B/C entry;
 - keep the challenge contract and runtime tuning behavior while linking the existing C server.

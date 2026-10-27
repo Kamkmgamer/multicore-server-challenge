@@ -852,15 +852,8 @@ enum {
     R_CREATE_ARTICLE, R_GET_ARTICLE, R_PUT_ARTICLE, R_DEL_ARTICLE, R_FAV, R_UNFAV, R_COMMENTS,
     R_CREATE_COMMENT, R_DEL_COMMENT, R_TAGS
 };
-static const int AUTH[] = {
-    [R_GET_USER] = A_REQUIRED, [R_PUT_USER] = A_REQUIRED, [R_PROFILE] = A_OPTIONAL, [R_FOLLOW] = A_REQUIRED,
-    [R_UNFOLLOW] = A_REQUIRED, [R_LIST] = A_OPTIONAL, [R_FEED] = A_REQUIRED, [R_CREATE_ARTICLE] = A_REQUIRED,
-    [R_GET_ARTICLE] = A_OPTIONAL, [R_PUT_ARTICLE] = A_REQUIRED, [R_DEL_ARTICLE] = A_REQUIRED, [R_FAV] = A_REQUIRED,
-    [R_UNFAV] = A_REQUIRED, [R_COMMENTS] = A_OPTIONAL, [R_CREATE_COMMENT] = A_REQUIRED, [R_DEL_COMMENT] = A_REQUIRED,
-    [R_TAGS] = A_NONE, [R_REGISTER] = A_NONE, [R_LOGIN] = A_NONE,
-};
-
 extern int b_route(int method, const void *segments, int nseg);
+extern int b_auth_mode(int route);
 
 static int route(req_t *r) {
     return b_route(r->method, r->seg, r->nseg);
@@ -881,9 +874,10 @@ static int authenticate(req_t *r) {
 void api_dispatch(req_t *r) {
     int rt = route(r);
     if (rt == R_NONE) { reply_err(r, 404, "not found"); return; }
-    if (AUTH[rt] != A_NONE) {
+    int auth_mode = b_auth_mode(rt);
+    if (auth_mode != A_NONE) {
         int a = authenticate(r);
-        if (a < 0 || (a == 0 && AUTH[rt] == A_REQUIRED)) { reply_err(r, 401, "unauthorized"); return; }
+        if (a < 0 || (a == 0 && auth_mode == A_REQUIRED)) { reply_err(r, 401, "unauthorized"); return; }
     }
     switch (rt) {
     case R_REGISTER: h_register(r); break;
