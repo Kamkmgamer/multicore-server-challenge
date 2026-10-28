@@ -75,10 +75,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	cfg.MaxConns, cfg.MinConns = 48, 8
+	// The list handlers block while waiting for a pool connection, unlike the
+	// previous pipelined reactor. Keep enough connections to cover the old
+	// implementation's in-flight pipeline while staying below PostgreSQL's
+	// 100-connection limit (including monitor/admin sessions).
+	cfg.MaxConns, cfg.MinConns = 80, 16
 	cfg.ConnConfig.RuntimeParams["application_name"] = "conduit-go-nethttp"
 	cfg.ConnConfig.RuntimeParams["TimeZone"] = "UTC"
 	cfg.ConnConfig.RuntimeParams["jit"] = "off"
+	cfg.ConnConfig.RuntimeParams["statement_timeout"] = "5000"
+	cfg.ConnConfig.RuntimeParams["lock_timeout"] = "2000"
+	cfg.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] = "6000"
+	cfg.ConnConfig.RuntimeParams["plan_cache_mode"] = "force_generic_plan"
+	cfg.ConnConfig.RuntimeParams["max_parallel_workers_per_gather"] = "0"
 	db, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		log.Fatal(err)
@@ -471,29 +480,37 @@ func (a *app) tags(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 			out = append(out, s)
 		}
 	}
+	if e = rows.Err(); e != nil {
+		fail(w, 500, "server error")
+		return
+	}
 	output(w, 200, map[string]any{"tags": out})
 }
 
-func (a *app) list(ctx context.Context, viewer int64, where string, extra []any, limit, offset int) ([]articleData, int, error) {
-	args := []any{viewer}
-	args = append(args, extra...)
-	lp := len(args) + 1
-	op := lp + 1
-	q := fmt.Sprintf("SELECT a.slug,a.title,a.description,a.created_at,a.updated_at,COALESCE(ARRAY(SELECT t.name FROM article_tags at JOIN tags t ON t.id=at.tag_id WHERE at.article_id=a.id ORDER BY t.name),'{}'),(SELECT count(*) FROM favorites f WHERE f.article_id=a.id),EXISTS(SELECT 1 FROM favorites f WHERE f.article_id=a.id AND f.user_id=$1),u.username,u.bio,u.image,EXISTS(SELECT 1 FROM follows fo WHERE fo.follower_id=$1 AND fo.followee_id=a.author_id) FROM articles a JOIN users u ON u.id=a.author_id WHERE %s ORDER BY a.id DESC LIMIT $%d OFFSET $%d", where, lp, op)
-	rows, e := a.db.Query(ctx, q, append(args, limit, offset)...)
+func (a *app) list(ctx context.Context, viewer int64, mode listMode, filter string, limit, offset int) ([]articleData, int, error) {
+	args := []any{viewer, limit, offset}
+	if mode == listTagMode || mode == listAuthorMode || mode == listFavoriteMode {
+		args = append(args, filter)
+	}
+	rows, e := a.db.Query(ctx, listQuery(mode), args...)
 	if e != nil {
 		return nil, 0, e
 	}
 	defer rows.Close()
 	out := []articleData{}
+	count := int64(0)
 	for rows.Next() {
+		var id int64
 		var x articleData
 		var tags []string
 		var bio, image *string
 		var favs int
 		var following bool
-		if e = rows.Scan(&x.Slug, &x.Title, &x.Description, &x.Created, &x.Updated, &tags, &favs, &x.Favorited, &x.Author.Username, &bio, &image, &following); e != nil {
+		if e = rows.Scan(&count, &id, &x.Slug, &x.Title, &x.Description, &x.Created, &x.Updated, &tags, &favs, &x.Favorited, &x.Author.Username, &bio, &image, &following); e != nil {
 			return nil, 0, e
+		}
+		if id == 0 {
+			continue
 		}
 		x.Tags = tags
 		x.Favorites = favs
@@ -502,21 +519,10 @@ func (a *app) list(ctx context.Context, viewer int64, where string, extra []any,
 		x.Author.Following = following
 		out = append(out, x)
 	}
-	cq := "SELECT count(*) FROM (SELECT 1 FROM articles a JOIN users u ON u.id=a.author_id WHERE " + where + " LIMIT 1000) s"
-	var count int
-	cargs := []any{}
-	for _, v := range extra {
-		cargs = append(cargs, v)
-	}
-	if len(cargs) > 0 {
-		cq = strings.ReplaceAll(cq, "$2", "$1")
-	} else {
-		cq = "SELECT count(*) FROM (SELECT 1 FROM articles LIMIT 1000) s"
-	}
-	if e = a.db.QueryRow(ctx, cq, cargs...).Scan(&count); e != nil {
+	if e = rows.Err(); e != nil {
 		return nil, 0, e
 	}
-	return out, count, nil
+	return out, int(count), nil
 }
 func (a *app) articleList(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
@@ -538,19 +544,16 @@ func (a *app) articleList(ctx context.Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 	q := r.URL.Query()
-	where := "TRUE"
-	var extra []any
+	mode := listAllMode
+	filter := ""
 	if v := q.Get("tag"); v != "" {
-		where = "a.id IN (SELECT at.article_id FROM article_tags at JOIN tags t ON t.id=at.tag_id WHERE t.name=$2)"
-		extra = []any{v}
+		mode, filter = listTagMode, v
 	} else if v := q.Get("author"); v != "" {
-		where = "a.author_id=(SELECT id FROM users WHERE username=$2)"
-		extra = []any{v}
+		mode, filter = listAuthorMode, v
 	} else if v := q.Get("favorited"); v != "" {
-		where = "a.id IN (SELECT f.article_id FROM favorites f JOIN users u ON u.id=f.user_id WHERE u.username=$2)"
-		extra = []any{v}
+		mode, filter = listFavoriteMode, v
 	}
-	out, count, e := a.list(ctx, id, where, extra, limit, offset)
+	out, count, e := a.list(ctx, id, mode, filter, limit, offset)
 	if e != nil {
 		fail(w, 500, "server error")
 		return
@@ -576,7 +579,7 @@ func (a *app) feed(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 		fail(w, 422, "validation error")
 		return
 	}
-	out, count, e := a.list(ctx, id, "a.author_id IN (SELECT followee_id FROM follows WHERE follower_id=$2)", []any{id}, limit, offset)
+	out, count, e := a.list(ctx, id, listFeedMode, "", limit, offset)
 	if e != nil {
 		fail(w, 500, "server error")
 		return

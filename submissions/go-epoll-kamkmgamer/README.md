@@ -7,10 +7,10 @@ not the custom epoll reactor used by PR #28. Requests run through a bounded pgxp
 HTTP keep-alive handling, context cancellation, and explicit transaction boundaries.
 
 - Go 1.27.1 with net/http
-- pgx/v5 pool with separate connection limits and server-side PostgreSQL queries
+- bounded pgx/v5 pool with server-side PostgreSQL queries
 - hand-written HS256 token verification and JSON response maps
 - bcrypt cost 10 for every password hash and login verification
-- no response, query, token, or password cache
+- no cross-request data cache; article, tag, and user-specific responses remain database-backed
 
 The implementation is original to this folder. The Conduit contract and schema come from the
 challenge; [PR #28](https://github.com/arjaythedev/multicore-server-challenge/pull/28) by
@@ -25,5 +25,6 @@ DATABASE_URL=postgres://conduit:conduit@127.0.0.1:5432/conduit
 JWT_SECRET=multicore-server-challenge HOST=0.0.0.0 PORT=80 bash start.sh
 ~~~
 
-The server reads every request from PostgreSQL, commits writes before responding, and keeps the
-challenge's 95-connection budget through the pool configuration.
+List responses use one SQL round trip for the page and capped count, and feed pages select a bounded
+recent set per followed author before merging. The server commits writes before responding and keeps
+the challenge's 95-connection budget through the pool configuration.
